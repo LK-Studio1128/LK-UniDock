@@ -2,10 +2,15 @@
 
 > LK-UniDock is a collection of GPU-accelerated molecular docking engines maintained as part of [LKDock](https://github.com/). It provides pre-built portable binaries for all major platforms and patched source code for building from scratch, including **Windows GPU binaries** that the upstream projects do not officially distribute.
 
+<p align="center">
+  <img src="docs/assets/lk-unidock-poster.jpg" alt="LK-UniDock overview poster" width="900">
+</p>
+
 ---
 
 ## Table of Contents
 
+- [Overview Poster](#overview-poster)
 - [Engine Overview](#engine-overview)
 - [Repository Structure](#repository-structure)
 - [Pre-built Binaries](#pre-built-binaries)
@@ -15,6 +20,14 @@
 - [What We Changed vs Upstream](#what-we-changed-vs-upstream)
 - [Building from Source](#building-from-source)
 - [License](#license)
+
+---
+
+## Overview Poster
+
+The overview poster summarizes LK-UniDock's cross-platform release packages, GPU acceleration features, Windows portable build strategy, and typical command-line usage.
+
+> Third-party platform and hardware names/logos shown in the poster are used only for compatibility and descriptive purposes. LK-UniDock is not affiliated with or endorsed by Apple, Microsoft, NVIDIA, GitHub, or Linux trademark holders.
 
 ---
 
@@ -41,6 +54,7 @@
 LK-UniDock/
 ├── Uni-Dock-main/        # Patched Uni-Dock v1.1.3 source code
 ├── UniDock-Pro-main/     # Patched UniDock-Pro v0.0.1 source code
+├── docs/assets/          # Project images and documentation assets
 └── UniDock/              # Pre-built binaries (all platforms)
     ├── UniDock-macos-arm64/   # macOS Apple Silicon (CPU-only)
     ├── UniDock-linux86/       # Linux x86_64 (GPU)
