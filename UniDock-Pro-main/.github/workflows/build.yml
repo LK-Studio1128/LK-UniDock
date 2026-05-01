@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-macos:
+    name: macOS (CPU-only, arm64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake boost libomp
+
+      - name: Build (CPU-only)
+        run: bash build_mac.sh --no-portable
+
+      - name: Verify binary
+        run: |
+          ./build/udp --help | head -5
+          echo "macOS CPU build OK"
+
+  build-linux:
+    name: Linux (CPU-only)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ \
+            libboost-system-dev libboost-thread-dev \
+            libboost-serialization-dev libboost-filesystem-dev \
+            libboost-program-options-dev libboost-timer-dev
+
+      - name: Build (CPU-only)
+        run: bash build_linux.sh --cpu-only --no-portable
+
+      - name: Verify binary
+        run: |
+          ./dist/Uni-Dock.bundle/Uni-Dock --help | head -5
+          echo "Linux CPU build OK"

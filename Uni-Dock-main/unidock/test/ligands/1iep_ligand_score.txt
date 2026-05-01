@@ -1,0 +1,11 @@
+REMARK 1iep_ligand.pdbqt -12.513 (kcal/mol)
+Estimated Free Energy of Binding   : -12.513 (kcal/mol) [=(1)+(2)+(3)+(4)]
+(1) Final Intermolecular Energy    : -17.634 (kcal/mol)
+    Ligand - Receptor              : -17.634 (kcal/mol)
+    Ligand - Flex side chains      : 0.000 (kcal/mol)
+(2) Final Total Internal Energy    : -0.485 (kcal/mol)
+    Ligand                         : -0.485 (kcal/mol)
+    Flex   - Receptor              : 0.000 (kcal/mol)
+    Flex   - Flex side chains      : 0.000 (kcal/mol)
+(3) Torsional Free Energy          : 5.121 (kcal/mol)
+(4) Unbound System's Energy        : -0.485 (kcal/mol)

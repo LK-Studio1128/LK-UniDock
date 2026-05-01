@@ -1,0 +1,12 @@
+build/
+dist/
+profiling/
+*.patch
+archive/
+round1_patches/
+.DS_Store
+*.o
+__pycache__/
+.vscode/
+.idea/
+*.egg-info/
