@@ -16,22 +16,23 @@ REM   build_windows.bat --gpu-only      -- build GPU variant only
 
 setlocal enabledelayedexpansion
 
-set SCRIPT_DIR=%~dp0
-set DIST_DIR=%SCRIPT_DIR%dist
-set FETCH_BOOST=OFF
-set PORTABLE=OFF
-set BUILD_CPU=ON
-set BUILD_GPU=ON
-set CMAKE_GENERATOR_ARGS=-G "Visual Studio 17 2022" -A x64
-set CUDA_TOOLSET_ARG=
+set "SCRIPT_DIR=%~dp0"
+if "%SCRIPT_DIR:~-1%"=="\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+set "DIST_DIR=%SCRIPT_DIR%\dist"
+set "FETCH_BOOST=OFF"
+set "PORTABLE=OFF"
+set "BUILD_CPU=ON"
+set "BUILD_GPU=ON"
+set "CMAKE_GENERATOR=Visual Studio 17 2022"
+set "CUDA_TOOLSET_ARG="
 
 if defined CUDA_PATH if exist "%CUDA_PATH%\bin\nvcc.exe" (
-  set CUDA_TOOLSET_ARG=-T cuda="%CUDA_PATH%"
+  set "CUDA_TOOLSET_ARG=cuda=%CUDA_PATH%"
 ) else (
   for /f "delims=" %%I in ('where nvcc 2^>nul') do (
     for %%J in ("%%~dpI..") do (
       if exist "%%~fJ\bin\nvcc.exe" (
-        set CUDA_TOOLSET_ARG=-T cuda="%%~fJ"
+        set "CUDA_TOOLSET_ARG=cuda=%%~fJ"
         goto :cuda_toolset_ready
       )
     )
@@ -41,12 +42,12 @@ if defined CUDA_PATH if exist "%CUDA_PATH%\bin\nvcc.exe" (
 :cuda_toolset_ready
 
 :parse_args
-if "%~1"=="--cpu"          set BUILD_GPU=OFF & shift & goto parse_args
-if "%~1"=="--cpu-only"     set BUILD_GPU=OFF & shift & goto parse_args
-if "%~1"=="--gpu-only"     set BUILD_CPU=OFF & shift & goto parse_args
-if "%~1"=="--fetch-boost"  set FETCH_BOOST=ON & shift & goto parse_args
-if "%~1"=="--portable"     set PORTABLE=ON & shift & goto parse_args
-if "%~1"=="--no-portable"  set PORTABLE=OFF & shift & goto parse_args
+if "%~1"=="--cpu"          set "BUILD_GPU=OFF" & shift & goto parse_args
+if "%~1"=="--cpu-only"     set "BUILD_GPU=OFF" & shift & goto parse_args
+if "%~1"=="--gpu-only"     set "BUILD_CPU=OFF" & shift & goto parse_args
+if "%~1"=="--fetch-boost"  set "FETCH_BOOST=ON" & shift & goto parse_args
+if "%~1"=="--portable"     set "PORTABLE=ON" & shift & goto parse_args
+if "%~1"=="--no-portable"  set "PORTABLE=OFF" & shift & goto parse_args
 
 if "%BUILD_CPU%"=="OFF" if "%BUILD_GPU%"=="OFF" (
   echo ERROR: both CPU and GPU builds are disabled.
@@ -58,15 +59,15 @@ echo   Source   : %SCRIPT_DIR%
 echo   Portable : %PORTABLE%
 echo   Build CPU: %BUILD_CPU%
 echo   Build GPU: %BUILD_GPU%
-if defined CUDA_TOOLSET_ARG echo   CUDA Toolset: %CUDA_TOOLSET_ARG%
+if defined CUDA_TOOLSET_ARG echo   CUDA Toolset: -T "%CUDA_TOOLSET_ARG%"
 echo.
 
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 
-call :build_variant CPU ON OFF "%SCRIPT_DIR%build_cpu" UniDock-Pro.exe
+call :build_variant CPU ON OFF "%SCRIPT_DIR%\build_cpu" UniDock-Pro.exe
 if errorlevel 1 exit /b 1
 
-call :build_variant GPU OFF ON "%SCRIPT_DIR%build_gpu" UniDock-Pro-GPU.exe
+call :build_variant GPU OFF ON "%SCRIPT_DIR%\build_gpu" UniDock-Pro-GPU.exe
 if errorlevel 1 exit /b 1
 
 echo.
@@ -75,14 +76,14 @@ echo Dist dir: %DIST_DIR%
 exit /b 0
 
 :build_variant
-set VARIANT=%~1
-set CPU_ONLY=%~2
-set REQUIRE_CUDA=%~3
-set BUILD_DIR=%~4
-set OUTPUT_NAME=%~5
-set OUTPUT_STEM=%~n5
-set BUNDLE_DIR=%DIST_DIR%\%OUTPUT_STEM%.bundle
-set TARGET_EXE=%BUNDLE_DIR%\%OUTPUT_NAME%
+set "VARIANT=%~1"
+set "CPU_ONLY=%~2"
+set "REQUIRE_CUDA=%~3"
+set "BUILD_DIR=%~4"
+set "OUTPUT_NAME=%~5"
+set "OUTPUT_STEM=%~n5"
+set "BUNDLE_DIR=%DIST_DIR%\%OUTPUT_STEM%.bundle"
+set "TARGET_EXE=%BUNDLE_DIR%\%OUTPUT_NAME%"
 
 if "%VARIANT%"=="CPU" if "%BUILD_CPU%"=="OFF" goto :eof
 if "%VARIANT%"=="GPU" if "%BUILD_GPU%"=="OFF" goto :eof
@@ -96,12 +97,21 @@ if "%VARIANT%"=="GPU" if not defined CUDA_TOOLSET_ARG (
   exit /b 1
 )
 
-cmake -S "%SCRIPT_DIR%" -B "%BUILD_DIR%" %CMAKE_GENERATOR_ARGS% %CUDA_TOOLSET_ARG% ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DFORCE_CPU_ONLY=%CPU_ONLY% ^
-  -DREQUIRE_CUDA=%REQUIRE_CUDA% ^
-  -DFETCH_BOOST=%FETCH_BOOST% ^
-  -DBUILD_PORTABLE=%PORTABLE%
+if defined CUDA_TOOLSET_ARG (
+  cmake -S "%SCRIPT_DIR%" -B "%BUILD_DIR%" -G "%CMAKE_GENERATOR%" -A x64 -T "%CUDA_TOOLSET_ARG%" ^
+    -DCMAKE_BUILD_TYPE=Release ^
+    -DFORCE_CPU_ONLY=%CPU_ONLY% ^
+    -DREQUIRE_CUDA=%REQUIRE_CUDA% ^
+    -DFETCH_BOOST=%FETCH_BOOST% ^
+    -DBUILD_PORTABLE=%PORTABLE%
+) else (
+  cmake -S "%SCRIPT_DIR%" -B "%BUILD_DIR%" -G "%CMAKE_GENERATOR%" -A x64 ^
+    -DCMAKE_BUILD_TYPE=Release ^
+    -DFORCE_CPU_ONLY=%CPU_ONLY% ^
+    -DREQUIRE_CUDA=%REQUIRE_CUDA% ^
+    -DFETCH_BOOST=%FETCH_BOOST% ^
+    -DBUILD_PORTABLE=%PORTABLE%
+)
 
 if errorlevel 1 ( echo ERROR: CMake config failed. & exit /b 1 )
 

@@ -833,12 +833,19 @@ std::string Vina::vina_remarks(const model& m, output_type& pose, fl lb, fl ub) 
     remark.setf(std::ios::fixed, std::ios::floatfield);
     remark.setf(std::ios::showpoint);
 
-    // VINA RESULT: total score (includes all components)
-    remark << "REMARK VINA RESULT: " << std::setw(9) << std::setprecision(3) << pose.total << "  "
+    // VINA RESULT: predicted binding affinity == pose.e == energies[0] ==
+    // conf_independent(inter), the Estimated Free Energy of Binding. The intramolecular
+    // (unbound) reference is now computed PER POSE in global_search(_gpu) so it cancels
+    // exactly against the pose's own intra term; this avoids two failure modes:
+    //   * reporting pose.total (inter + intra + reflig) -> -20 ~ -30 kcal/mol, and
+    //   * reusing a single strained best-pose intramolecular reference -> -87 kcal/mol.
+    // Do NOT switch this back to pose.total.
+    remark << "REMARK VINA RESULT: " << std::setw(9) << std::setprecision(3) << pose.e << "  "
            << std::setw(9) << std::setprecision(3) << lb << "  " << std::setw(9)
            << std::setprecision(3) << ub << '\n';
 
-    // INTER + INTRA: receptor contribution only (excludes reflig_contrib)
+    // INTER + INTRA: raw intermolecular + intramolecular sum (pose.total semantics),
+    // reported separately for diagnostics, matching official Vina's INTER+INTRA line.
     remark << "REMARK INTER + INTRA: " << std::setw(9) << std::setprecision(3)
            << (pose.inter + pose.intra) << '\n';
     remark << "REMARK INTER:         " << std::setw(9) << std::setprecision(3) << pose.inter << '\n';
@@ -1459,10 +1466,22 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 
         for (int i = 0; i < (int)poses.size(); ++i) {
             m_model.set(poses[i].c);
-            std::vector<double> energies = score(intramolecular_energy);
-            poses[i].total = energies[0];
+            // Per-pose intramolecular (unbound) reference so it cancels against this
+            // pose's own intra term (same fix as the GPU path). Using the single best
+            // search pose as a shared reference makes the rescored total explode to
+            // absurd values when that pose is internally strained. Per-pose cancellation
+            // yields affinity = conf_independent(inter).
+            const vec intra_v(1000, 1000, 1000);
+            double intra_ref;
+            if (m_no_refine || !m_receptor_initialized)
+                intra_ref = m_model.eval_intramolecular(m_precalculated_byatom, m_grid, intra_v);
+            else
+                intra_ref = m_model.eval_intramolecular(m_precalculated_byatom, m_non_cache, intra_v);
+            std::vector<double> energies = score(intra_ref);
+            poses[i].e = energies[0];  // conf_independent(inter): the binding affinity
             poses[i].inter = energies[1];
             poses[i].intra = energies[2];
+            poses[i].total = poses[i].inter + poses[i].intra;
             poses[i].conf_independent = energies[6];
             poses[i].unbound = energies[7];
         }
@@ -1487,7 +1506,7 @@ void Vina::global_search(const int exhaustiveness, const int n_poses, const doub
 
             if (m_verbosity > 0) {
                 std::cout << std::setw(4) << i + 1 << "    " << std::setw(9)
-                          << std::setprecision(4) << poses[i].total;
+                          << std::setprecision(4) << poses[i].e;
                 std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].lb;
                 std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].ub << "\n";
             }
@@ -1634,10 +1653,24 @@ void Vina::global_search_gpu(const int exhaustiveness, const int n_poses, const 
 
                 m_model_gpu[l].set(poses[i].c);
 
-                DEBUG_PRINTF("intramolecular_energy=%f\n", intramolecular_energy);
-                std::vector<double> energies = score_gpu(l, intramolecular_energy);
+                // Per-pose intramolecular (unbound) reference so it cancels exactly
+                // against this pose's own intra term. Reusing the single best search
+                // pose as a shared reference makes total = conf_independent(inter + intra
+                // - intra_ref) explode to absurd values (e.g. -87 kcal/mol) whenever that
+                // best pose is internally strained. See vina.h global_search_gpu for the
+                // full explanation. Result: affinity = conf_independent(inter).
+                const vec authentic_v_rescore(1000, 1000, 1000);
+                double intra_ref;
+                if (m_no_refine || !m_receptor_initialized)
+                    intra_ref = m_model_gpu[l].eval_intramolecular(
+                        m_precalculated_byatom_gpu[l], m_grid, authentic_v_rescore);
+                else
+                    intra_ref = m_model_gpu[l].eval_intramolecular(
+                        m_precalculated_byatom_gpu[l], m_non_cache, authentic_v_rescore);
+                DEBUG_PRINTF("intra_ref(per-pose)=%f\n", intra_ref);
+                std::vector<double> energies = score_gpu(l, intra_ref);
                 // Store energy components in current pose
-                poses[i].e = energies[0];  // specific to each scoring function
+                poses[i].e = energies[0];  // conf_independent(inter): the binding affinity
                 poses[i].inter = energies[1] + energies[2];
                 poses[i].intra = energies[3] + energies[4] + energies[5];
                 poses[i].reflig_contrib = energies[8];  // reference ligand contribution
@@ -1675,7 +1708,7 @@ void Vina::global_search_gpu(const int exhaustiveness, const int n_poses, const 
 
                 if (m_verbosity > 0) {
                     std::cout << std::setw(4) << i + 1 << "    " << std::setw(9)
-                              << std::setprecision(4) << poses[i].total;
+                              << std::setprecision(4) << poses[i].e;
                     std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].lb;
                     std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].ub
                               << "\n";

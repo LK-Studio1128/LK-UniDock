@@ -279,6 +279,56 @@ Platform-specific build scripts were added to both source folders:
 | `build_linux.sh` | Linux (CPU + GPU) | `dist/Uni-Dock.bundle/`, `dist/Uni-Dock-GPU.bundle/` |
 | `build_windows.bat` | Windows (CPU + GPU) | `dist\Uni-Dock.bundle\`, `dist\Uni-Dock-GPU.bundle\` |
 
+### 6. Binding Energy Scoring Fix — `src/lib/vina.cpp` / `src/lib/vina.h` (v1.0.1)
+
+**Problem**: UniDock-Pro reported abnormally negative binding affinities (−20 to −30 kcal/mol, and in extreme cases −87 kcal/mol) for certain ligands — especially large, flexible molecules or when using a small docking box. The internal Monte-Carlo search scores were normal, but the final reported `REMARK VINA RESULT` value was wrong.
+
+**Root Cause**: During the rescoring phase after Monte-Carlo search, the intramolecular (unbound) reference energy was calculated **once** from the single best search pose and then reused as a shared reference for **all** output poses. When that best pose was internally strained (high intramolecular energy, e.g. ~114 kcal/mol), every other pose got `(its own small intra) − (huge shared reference)` subtracted, causing the total to blow up to absurdly negative values. The re-sort then promoted these garbage poses to the top of the ranking.
+
+This affected all three code paths:
+- CPU `global_search` in `vina.cpp`
+- Non-template GPU `global_search_gpu` in `vina.cpp`
+- Template GPU `global_search_gpu<Config>` in `vina.h` (the actual batch docking path)
+
+**Fix**: Compute the intramolecular reference energy **per-pose** within the rescoring loop, so it cancels exactly against each pose's own intra term. This yields the physically meaningful Vina binding affinity: `conf_independent(inter)`, typically −6 to −13 kcal/mol.
+
+Key changes in each rescoring loop:
+```cpp
+// Before: shared intramolecular reference from best search pose (BUG)
+//   → total = conf_independent(inter + intra - shared_intra_ref)
+//   → explodes when shared_intra_ref is from a strained pose
+
+// After: per-pose intramolecular reference (FIX)
+const vec intra_ref_v(1000, 1000, 1000);
+double intra_ref;
+if (m_no_refine || !m_receptor_initialized)
+    intra_ref = m_model.eval_intramolecular(m_precalculated_byatom, m_grid, intra_ref_v);
+else
+    intra_ref = m_model.eval_intramolecular(m_precalculated_byatom, m_non_cache, intra_ref_v);
+std::vector<double> energies = score(intra_ref);
+poses[i].e = energies[0];  // conf_independent(inter): correct binding affinity
+```
+
+The `vina_remarks` function was also updated with a detailed comment to prevent regression:
+```cpp
+// VINA RESULT: predicted binding affinity == pose.e == energies[0] ==
+// conf_independent(inter), the Estimated Free Energy of Binding. The intramolecular
+// (unbound) reference is now computed PER POSE in global_search(_gpu) so it cancels
+// exactly against the pose's own intra term; this avoids two failure modes:
+//   * reporting pose.total (inter + intra + reflig) -> -20 ~ -30 kcal/mol, and
+//   * reusing a single strained best-pose intramolecular reference -> -87 kcal/mol.
+// Do NOT switch this back to pose.total.
+```
+
+**Verification**: Tested on macOS CPU build with both a small rigid ligand (1iep, affinity ~−13.3 kcal/mol) and a large flexible ligand (BACE_1, affinity ~−8.0 kcal/mol). All scores are now within expected ranges; the −20 to −30 and −87 kcal/mol artifacts are eliminated. Linux GPU build (RTX 3060, CUDA 12.4) also compiled and ran successfully.
+
+### 7. Windows Build Script Improvements — `build_windows.bat` (v1.0.1)
+
+- Fixed variable quoting (`set "VAR=value"` pattern) to handle paths with spaces
+- Fixed `CUDA_TOOLSET_ARG` formatting for CMake `-T` flag
+- Separated cmake invocations for with/without CUDA toolset to avoid argument parsing issues
+- Fixed missing backslashes in path construction
+
 ### Summary: Upstream vs LK-UniDock
 
 | Item | Upstream `dptech-corp/Uni-Dock` | LK-UniDock |
@@ -299,6 +349,8 @@ Platform-specific build scripts were added to both source folders:
 | LICENSE file | ❌ Missing | ✅ Apache 2.0 added |
 | CI workflow | ❌ Missing | ✅ `.github/workflows/build.yml` added |
 | Same MSVC/CUDA fixes | Applied | ✅ |
+| Binding energy scoring fix | ❌ Not fixed | ✅ Per-pose intramolecular reference (v1.0.1) |
+| Windows build script | Original | ✅ Fixed quoting & path handling (v1.0.1) |
 
 ---
 

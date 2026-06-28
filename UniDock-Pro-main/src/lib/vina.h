@@ -243,10 +243,28 @@ public:
                 if (m_verbosity > 1) std::cout << "ENERGY FROM SEARCH: " << poses[i].e << "\n";
 
                 m_model_gpu[l].set(poses[i].c);
-                DEBUG_PRINTF("intramolecular_energy=%f\n", intramolecular_energy);
-                std::vector<double> energies = score_gpu(l, intramolecular_energy);
+                // Compute the intramolecular (unbound) reference energy from THIS pose
+                // instead of reusing the single best search pose for every pose. The
+                // affinity is total = conf_independent(inter + intra - intra_ref). When a
+                // shared reference (the best search pose) is internally strained, its
+                // intramolecular energy can be large (e.g. ~114 kcal/mol); every other
+                // pose then gets (its own small intra) - (huge reference) subtracted and
+                // total blows up to absurd values (e.g. -87 kcal/mol), and the re-sort
+                // promotes those garbage poses. Per-pose cancellation (intra == intra_ref
+                // for the same conformation) yields affinity = conf_independent(inter),
+                // the physically meaningful Vina binding score (~ -6 ~ -12 kcal/mol).
+                const vec authentic_v_rescore(1000, 1000, 1000);
+                double intra_ref;
+                if (m_no_refine || !m_receptor_initialized)
+                    intra_ref = m_model_gpu[l].eval_intramolecular(
+                        m_precalculated_byatom_gpu[l], m_grid, authentic_v_rescore);
+                else
+                    intra_ref = m_model_gpu[l].eval_intramolecular(
+                        m_precalculated_byatom_gpu[l], m_non_cache, authentic_v_rescore);
+                DEBUG_PRINTF("intra_ref(per-pose)=%f\n", intra_ref);
+                std::vector<double> energies = score_gpu(l, intra_ref);
                 // Store energy components in current pose
-                poses[i].e = energies[0];  // specific to each scoring function
+                poses[i].e = energies[0];  // conf_independent(inter): the binding affinity
                 poses[i].inter = energies[1] + energies[2];
                 poses[i].intra = energies[3] + energies[4] + energies[5];
                 poses[i].reflig_contrib = energies[8];  // reference ligand contribution
@@ -284,7 +302,7 @@ public:
 
                 if (m_verbosity > 0) {
                     std::cout << std::setw(4) << i + 1 << "    " << std::setw(9)
-                              << std::setprecision(4) << poses[i].total;
+                              << std::setprecision(4) << poses[i].e;
                     std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].lb;
                     std::cout << "  " << std::setw(9) << std::setprecision(4) << poses[i].ub
                               << "\n";
